@@ -1,2 +1,2 @@
 # toolkit
-some nomal utils or property file framework
+some nomal utils class or property file framework
