@@ -1,5 +1,3 @@
-package com.uroad.jstxb.util;
-
 import com.alibaba.fastjson.JSONObject;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpStatus;
@@ -16,7 +14,10 @@ import org.apache.http.conn.socket.ConnectionSocketFactory;
 import org.apache.http.conn.socket.LayeredConnectionSocketFactory;
 import org.apache.http.conn.socket.PlainConnectionSocketFactory;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
+import org.apache.http.entity.ContentType;
 import org.apache.http.entity.StringEntity;
+import org.apache.http.entity.mime.HttpMultipartMode;
+import org.apache.http.entity.mime.MultipartEntityBuilder;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
@@ -39,9 +40,9 @@ public class HttpConnPoolUtil {
     private static Logger mLogger = LoggerFactory.getLogger(HttpConnPoolUtil.class);
 
     //设置建立连接超时为2s
-    private static final int CONNECT_TIMEOUT = 5*1000;
+    private static final int CONNECT_TIMEOUT = 20*1000;
     //等待数据超时4s
-    private static final int SOCKET_TIMEOUT = 10*1000;
+    private static final int SOCKET_TIMEOUT = 40*1000;
     //连接数
     private static final int MAX_COUNT = 80;
     //路由最大并发数
@@ -68,6 +69,7 @@ public class HttpConnPoolUtil {
         manager = new PoolingHttpClientConnectionManager(registry);
         manager.setMaxTotal(MAX_COUNT);
         manager.setDefaultMaxPerRoute(MAX_PRE_ROUTE);
+
         //尽量不要设置失败重试次数
         httpClient = HttpClients.custom()
                 .setConnectionManager(manager)
@@ -113,8 +115,12 @@ public class HttpConnPoolUtil {
             if(response.getStatusLine().getStatusCode() == HttpStatus.SC_OK){
                 entity = response.getEntity();
                 return EntityUtils.toString(entity,"UTF-8");
+            }else {
+                mLogger.error("[method:"+request.getMethod()+",URI:"+request.getURI()+"]return error http code:"
+                        +response.getStatusLine().getStatusCode()+"reasonPhrase:"+response.getStatusLine().getReasonPhrase());
             }
         } catch (IOException e) {
+            e.printStackTrace();
             mLogger.error("[HttpConnnPoolUtil][invoke][method:"+request.getMethod()+",URI:"+request.getURI()+"]is request exception",e);
         } finally {
             if(entity != null){
@@ -180,6 +186,33 @@ public class HttpConnPoolUtil {
         if(methodCallTime > 5000){
             mLogger.warn("url:{},call time ：{} ms",url,methodCallTime);
         }
+        return result;
+    }
+
+    public static String httpStreamPost(String url,Map<String,Object> paramMap) throws IOException{
+        mLogger.info("post->req:url：{}",url);
+        HttpPost httpPost = new HttpPost(url);
+        Long startTs = System.currentTimeMillis();
+        MultipartEntityBuilder builder = MultipartEntityBuilder.create();
+        builder.setMode(HttpMultipartMode.BROWSER_COMPATIBLE);
+        for(Map.Entry<String,Object> entry : paramMap.entrySet()){
+            String key = entry.getKey();
+            if("file".equals(key)){
+                builder.addBinaryBody("file",(byte[]) entry.getValue(), ContentType.DEFAULT_BINARY,(String)paramMap.get("fileName"));
+            }else {
+                builder.addTextBody(key,(String)entry.getValue());
+            }
+        }
+        HttpEntity entity = builder.build();
+        httpPost.setEntity(entity);
+        String result = invoke(httpPost);
+        Long endTs = System.currentTimeMillis();
+        Long methodCallTime = endTs - startTs;
+        if(methodCallTime > 5000){
+            mLogger.warn("url:{},call time {} ms",url,methodCallTime);
+            mLogger.info("所有存活线程="+Thread.getAllStackTraces().size());
+        }
+        System.out.println("post->rps：" + result);
         return result;
     }
 }
